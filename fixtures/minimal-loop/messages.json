@@ -1,0 +1,80 @@
+[
+  {
+    "info": {
+      "id": "user_1",
+      "sessionID": "fixture_session",
+      "role": "user",
+      "model": {
+        "providerID": "google",
+        "modelID": "gemini-3.5-flash"
+      }
+    },
+    "parts": [
+      {
+        "id": "user_1_text",
+        "sessionID": "fixture_session",
+        "messageID": "user_1",
+        "type": "text",
+        "text": "Continue the previous investigation."
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "assistant_1",
+      "sessionID": "fixture_session",
+      "role": "assistant",
+      "modelID": "gemini-3.5-flash"
+    },
+    "parts": [
+      {
+        "id": "assistant_1_tool",
+        "sessionID": "fixture_session",
+        "messageID": "assistant_1",
+        "type": "tool",
+        "tool": "read",
+        "callID": "call_1",
+        "state": {
+          "input": {
+            "filePath": "/repo/src/lib.rs"
+          },
+          "status": "completed"
+        },
+        "metadata": {
+          "google": {
+            "thoughtSignature": "older-signature"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "info": {
+      "id": "assistant_2",
+      "sessionID": "fixture_session",
+      "role": "assistant",
+      "modelID": "gemini-3.5-flash"
+    },
+    "parts": [
+      {
+        "id": "assistant_2_tool",
+        "sessionID": "fixture_session",
+        "messageID": "assistant_2",
+        "type": "tool",
+        "tool": "read",
+        "callID": "call_2",
+        "state": {
+          "input": {
+            "filePath": "/repo/src/lib.rs"
+          },
+          "status": "completed"
+        },
+        "metadata": {
+          "google": {
+            "thoughtSignature": "latest-signature"
+          }
+        }
+      }
+    ]
+  }
+]
