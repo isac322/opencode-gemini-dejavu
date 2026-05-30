@@ -1,16 +1,25 @@
 {
   "name": "opencode-gemini-dejavu",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "OpenCode plugin that mitigates Gemini 3.x repeated tool-call deja vu with request-local turn boundaries.",
+  "license": "MIT",
+  "author": "isac322 <bh322yoo@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/isac322/opencode-gemini-dejavu.git"
+  },
+  "homepage": "https://github.com/isac322/opencode-gemini-dejavu#readme",
+  "bugs": {
+    "url": "https://github.com/isac322/opencode-gemini-dejavu/issues"
   },
   "keywords": [
     "opencode",
     "opencode-plugin",
     "gemini",
     "gemini-3",
+    "google-gemini",
+    "vertex-ai",
+    "thought-signature",
     "agent",
     "tool-call-loop",
     "repeated-tool-calls"

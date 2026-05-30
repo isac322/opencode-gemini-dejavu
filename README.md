@@ -1,5 +1,10 @@
 # opencode-gemini-dejavu: mitigate Gemini repeated tool-call loops and thinking runaway in OpenCode
 
+[![npm version](https://img.shields.io/npm/v/opencode-gemini-dejavu.svg)](https://www.npmjs.com/package/opencode-gemini-dejavu)
+[![npm downloads](https://img.shields.io/npm/dm/opencode-gemini-dejavu.svg)](https://www.npmjs.com/package/opencode-gemini-dejavu)
+[![license](https://img.shields.io/npm/l/opencode-gemini-dejavu.svg)](https://github.com/isac322/opencode-gemini-dejavu/blob/main/LICENSE)
+[![npm provenance](https://img.shields.io/badge/npm-provenance-blue?logo=npm)](https://docs.npmjs.com/generating-provenance-statements)
+
 Gemini 3.x in OpenCode can get stuck in two related failure modes:
 
 1. **Tool-call deja vu**: the agent's reasoning says it should move on, but the next model request calls the same tool with the same arguments again.
@@ -8,6 +13,18 @@ Gemini 3.x in OpenCode can get stuck in two related failure modes:
 `opencode-gemini-dejavu` is a small OpenCode plugin that catches both at the request boundary. It does not edit your saved transcript. It rewrites the message array OpenCode is about to send to Gemini, and (for Gemini models only) sets `thinkingConfig.includeThoughts: false` on the outgoing request, then lets the run continue.
 
 Use it when an OpenCode session with Gemini keeps repeating calls like `read({ filePath: "..." })`, or when the model thinks for tens of thousands of tokens and returns essentially nothing.
+
+## Installation
+
+OpenCode auto-installs the plugin when its npm name appears in `opencode.json` (see [Quick start](#quick-start) below). To install it manually:
+
+```bash
+bun add opencode-gemini-dejavu
+# or
+npm install opencode-gemini-dejavu
+```
+
+Requires Node.js `>=18.17` and OpenCode `>=1.15.12`.
 
 ## Quick start
 
