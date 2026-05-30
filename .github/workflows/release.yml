@@ -1,0 +1,138 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, release, and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js for release tooling
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Detect package version change
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current_version="$(node -p "require('./package.json').version")"
+          package_name="$(node -p "require('./package.json').name")"
+          previous_version=""
+
+          if git cat-file -e "${{ github.event.before }}:package.json" 2>/dev/null; then
+            previous_version="$(git show "${{ github.event.before }}:package.json" | node -e "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => console.log(JSON.parse(input).version));")"
+          fi
+
+          echo "package_name=$package_name" >> "$GITHUB_OUTPUT"
+          echo "current_version=$current_version" >> "$GITHUB_OUTPUT"
+          echo "previous_version=$previous_version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$current_version" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "$previous_version" && "$current_version" != "$previous_version" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Version changed: $previous_version -> $current_version"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "package.json version did not change; skipping release."
+          fi
+
+      - name: Set up Bun
+        if: steps.version.outputs.changed == 'true'
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        if: steps.version.outputs.changed == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Verify and build package
+        if: steps.version.outputs.changed == 'true'
+        run: bun run prepublishOnly
+
+      - name: Verify npm package contents
+        if: steps.version.outputs.changed == 'true'
+        run: npm pack --dry-run --ignore-scripts
+
+      - name: Create version tag
+        if: steps.version.outputs.changed == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          remote_sha="$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')"
+          current_sha="$(git rev-parse HEAD)"
+
+          if [[ -n "$remote_sha" ]]; then
+            if [[ "$remote_sha" != "$current_sha" ]]; then
+              echo "Tag $TAG already exists on a different commit ($remote_sha)." >&2
+              exit 1
+            fi
+
+            echo "Tag $TAG already exists on this commit; reusing it."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.current_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $TAG already exists; reusing it."
+            exit 0
+          fi
+
+          gh release create "$TAG" \
+            --title "v$VERSION" \
+            --generate-notes
+
+      - name: Publish to npm
+        if: steps.version.outputs.changed == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PACKAGE_NAME: ${{ steps.version.outputs.package_name }}
+          VERSION: ${{ steps.version.outputs.current_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if npm view "$PACKAGE_NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$PACKAGE_NAME@$VERSION already exists on npm; skipping publish."
+            exit 0
+          fi
+
+          npm publish --ignore-scripts --provenance --access public
