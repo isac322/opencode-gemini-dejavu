@@ -1,6 +1,6 @@
 {
   "name": "opencode-gemini-dejavu",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenCode plugin that mitigates Gemini 3.x repeated tool-call deja vu with request-local turn boundaries.",
   "keywords": [
     "opencode",

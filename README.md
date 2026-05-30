@@ -1,10 +1,13 @@
-# opencode-gemini-dejavu: mitigate Gemini repeated tool-call loops in OpenCode
+# opencode-gemini-dejavu: mitigate Gemini repeated tool-call loops and thinking runaway in OpenCode
 
-Gemini 3.x can sometimes get stuck in a tool-call deja vu: the agent says it should move on, but the next model request calls the same tool with the same arguments again.
+Gemini 3.x in OpenCode can get stuck in two related failure modes:
 
-`opencode-gemini-dejavu` is a small OpenCode plugin that catches that loop at the request boundary. It doesn't edit your saved transcript. It only rewrites the message array OpenCode is about to send to Gemini, then lets the run continue.
+1. **Tool-call deja vu**: the agent's reasoning says it should move on, but the next model request calls the same tool with the same arguments again.
+2. **Thinking-budget runaway**: the model spends nearly the entire `maxOutputTokens` budget on internal thinking and emits no visible output (`finishReason: STOP` with `candidatesTokenCount: 1`).
 
-Use it when an OpenCode session with Gemini keeps repeating calls like `read({ filePath: "..." })` instead of producing the next answer.
+`opencode-gemini-dejavu` is a small OpenCode plugin that catches both at the request boundary. It does not edit your saved transcript. It rewrites the message array OpenCode is about to send to Gemini, and (for Gemini models only) sets `thinkingConfig.includeThoughts: false` on the outgoing request, then lets the run continue.
+
+Use it when an OpenCode session with Gemini keeps repeating calls like `read({ filePath: "..." })`, or when the model thinks for tens of thousands of tokens and returns essentially nothing.
 
 ## Quick start
 
@@ -46,6 +49,7 @@ Defaults are deliberately conservative:
 | `batchRepeat` | `2` | Trigger when the same ordered batch of tool calls repeats this many times at the tail. |
 | `prune` | `"repeated"` | Remove thought signatures from older repeated calls only. Use `"none"` to disable pruning or `"all"` to prune more aggressively. |
 | `dryRun` | `false` | Detect and log without mutating the outgoing request. |
+| `disableThoughtSuppression` | `false` | Skip setting `thinkingConfig.includeThoughts: false` on Gemini requests. Set to `true` if you want the model to emit visible thought summaries (useful for debugging) even at the cost of higher reasoning token volume. |
 
 Set `GEMINI_DEJAVU_VERBOSE=1` to log rewrites:
 
@@ -70,7 +74,9 @@ Skip it when:
 
 ## What it changes
 
-The plugin runs in OpenCode's `experimental.chat.messages.transform` hook.
+The plugin runs in two OpenCode hooks:
+
+### `experimental.chat.messages.transform` — request-local boundary
 
 When it detects a repeated Gemini 3.x tool-call tail, it:
 
@@ -86,15 +92,23 @@ The boundary text is short on purpose:
 Continue from the evidence above. Treat the following tool result as the latest completed step for this generation.
 ```
 
-The saved OpenCode transcript is not rewritten. The change exists only in the outgoing request for that generation.
+### `chat.params` — `includeThoughts: false` on Gemini
+
+For every request the active model is a Gemini variant (any `id` / `modelID` / `api.id` containing `gemini`), the plugin sets `thinkingConfig.includeThoughts: false` on the outgoing request. Other `thinkingConfig` fields (notably `thinkingLevel`) are preserved exactly as OpenCode supplied them.
+
+In testing on `gemini-3.5-flash`, this single flip reliably prevented the budget-exhaustion runaway (where `thoughtsTokenCount` would otherwise reach ~30k of a 32k `maxOutputTokens` budget with `candidatesTokenCount` of 1). The `thoughtSignature` carry across turns is preserved, so multi-turn reasoning continuity is not lost.
+
+Set `disableThoughtSuppression: true` in plugin options to skip this hook entirely.
+
+The saved OpenCode transcript is not rewritten. Both changes exist only in the outgoing request for that generation.
 
 ## Why this helps
 
-The failure mode is not just "the model called a tool twice." In the captured repro used to build this plugin, the model's reasoning moved on, while the emitted `functionCall` kept returning to an older `read(...)` call. Exact preservation of call IDs and available Gemini thought signatures did not stop the repeat.
+The deja-vu failure mode is not just "the model called a tool twice." In the captured repro used to build this plugin, the model's reasoning moved on while the emitted `functionCall` kept returning to an older `read(...)` call. Exact preservation of call IDs and available Gemini thought signatures did not stop the repeat. The working mitigation was a request-local turn boundary: make the latest completed tool result look like the current step, then remove older repeated signatures that were pulling the model back into the stale call.
 
-The working mitigation was a request-local turn boundary: make the latest completed tool result look like the current step, then remove older repeated signatures that were pulling the model back into the stale call.
+The thinking-runaway failure mode is different. In the captured repro on `gemini-3.5-flash` with `thinkingLevel: "high"` and a session containing several large recent tool results, the model would consume close to the full `maxOutputTokens` budget on internal thinking and return essentially no visible output. Per Google's docs `includeThoughts` is nominally a summary-return toggle, but on this model the server-side decoding path shifts dramatically when summaries are not requested: streaming response parts collapse from ~90 chunks to 2, and `thoughtsTokenCount` falls from ~30k to under ~2k. The `thoughtSignature` continues to be emitted on the final response part, so multi-turn reasoning state still carries forward.
 
-That is all this package does. No cache, no database, no model setting changes, no transcript migration.
+Both mitigations are applied at the request boundary only. No cache, no database, no transcript migration.
 
 ## Verification
 
@@ -119,8 +133,10 @@ The test harness uses a repo-local fixture. It is not included in the npm tarbal
 name: opencode-gemini-dejavu
 type: opencode-plugin
 runtime: node >=18.17
-models: gemini-3.x
-hook: experimental.chat.messages.transform
+models: gemini-3.x (boundary), gemini-* (thinkingConfig)
+hooks:
+  - experimental.chat.messages.transform
+  - chat.params
 entrypoint: dist/plugin.js
 types: dist/plugin.d.ts
 published_files:

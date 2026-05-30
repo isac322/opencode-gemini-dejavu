@@ -52,10 +52,19 @@ type LoopBreakerOptions = {
   batchRepeat?: number;
   prune?: "none" | "repeated" | "all";
   dryRun?: boolean;
+  disableThoughtSuppression?: boolean;
+};
+
+type ChatParamsModel = {
+  id?: string;
+  modelID?: string;
+  providerID?: string;
+  api?: { id?: string; npm?: string };
 };
 
 type TransformHooks = {
   "experimental.chat.messages.transform": (_input: unknown, output: { messages: unknown }) => Promise<void>;
+  "chat.params": (input: { model?: ChatParamsModel }, output: { options?: Record<string, unknown> }) => Promise<void>;
 };
 
 function canonicalJson(value: unknown): string {
@@ -287,7 +296,20 @@ function parseOptions(options: unknown): Required<LoopBreakerOptions> {
     batchRepeat: typeof candidate?.batchRepeat === "number" ? candidate.batchRepeat : DEFAULT_BATCH_REPEAT,
     prune: candidate?.prune === "none" || candidate?.prune === "all" || candidate?.prune === "repeated" ? candidate.prune : "repeated",
     dryRun: candidate?.dryRun === true,
+    disableThoughtSuppression: candidate?.disableThoughtSuppression === true,
   };
+}
+
+function isGeminiModel(model: ChatParamsModel | undefined): boolean {
+  if (!model) return false;
+  const candidates = [model.id, model.modelID, model.api?.id].filter((v): v is string => typeof v === "string");
+  return candidates.some((value) => /gemini/i.test(value));
+}
+
+function applyThinkingConfigSuppression(options: Record<string, unknown>): void {
+  const current = options.thinkingConfig;
+  const base = current && typeof current === "object" ? (current as Record<string, unknown>) : {};
+  options.thinkingConfig = { ...base, includeThoughts: false };
 }
 
 export function rewriteMessagesForTest(messages: ChatMessage[], pluginOptions?: LoopBreakerOptions): ReturnType<typeof applyRewrite> {
@@ -308,6 +330,16 @@ const pluginRuntime = async (_input: unknown, pluginOptions?: unknown): Promise<
         console.warn(
           `[${PLUGIN_ID}] ${options.dryRun ? "would rewrite" : "rewrote"} reason=${result.reason} insertedAt=${result.insertedAt} pruned=${result.pruned}`,
         );
+      }
+    },
+    "chat.params": async (input, output) => {
+      if (options.disableThoughtSuppression) return;
+      if (!isGeminiModel(input?.model)) return;
+      const opts = (output.options ?? {}) as Record<string, unknown>;
+      applyThinkingConfigSuppression(opts);
+      output.options = opts;
+      if (VERBOSE) {
+        console.warn(`[${PLUGIN_ID}] set thinkingConfig.includeThoughts=false for ${input?.model?.id ?? input?.model?.modelID}`);
       }
     },
   };
